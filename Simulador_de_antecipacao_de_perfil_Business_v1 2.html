@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Simulador de Antecipação</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+
+body{
+font-family:Arial;
+background:#f4f6f9;
+margin:0;
+padding:40px;
+}
+
+.container{
+max-width:950px;
+margin:auto;
+background:white;
+padding:30px;
+border-radius:10px;
+box-shadow:0 3px 12px rgba(0,0,0,0.08);
+}
+
+h1{
+text-align:center;
+margin-bottom:30px;
+}
+
+.grid{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:20px;
+}
+
+label{
+font-weight:bold;
+}
+
+input,select{
+width:100%;
+padding:10px;
+border-radius:6px;
+border:1px solid #ccc;
+margin-top:5px;
+}
+
+.actions{
+margin-top:20px;
+overflow:auto;
+}
+
+.btn-pdf{
+background:#3498db;
+color:white;
+padding:12px 20px;
+border:none;
+border-radius:6px;
+cursor:pointer;
+font-weight:bold;
+float:right;
+}
+
+.resultado{
+margin-top:30px;
+background:#fafafa;
+padding:20px;
+border-radius:8px;
+}
+
+table{
+width:100%;
+border-collapse:collapse;
+margin-top:20px;
+}
+
+th,td{
+border:1px solid #ddd;
+padding:8px;
+text-align:center;
+font-size:13px;
+}
+
+th{
+background:#f1f1f1;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>Simulador de Antecipação de Recebíveis</h1>
+
+<div class="grid">
+
+<div>
+<label>Valor da venda</label>
+<input id="valorVenda" placeholder="R$ 0,00">
+</div>
+
+<div>
+<label>Parcelas</label>
+<select id="parcelas">
+<option value="">Selecione</option>
+<option value="1">1</option>
+<option value="2">2</option>
+<option value="3">3</option>
+<option value="4">4</option>
+<option value="5">5</option>
+<option value="6">6</option>
+<option value="7">7</option>
+<option value="8">8</option>
+<option value="9">9</option>
+<option value="10">10</option>
+<option value="11">11</option>
+<option value="12">12</option>
+</select>
+</div>
+
+<div>
+<label>MDR à vista (%)</label>
+<input id="mdrVista" type="number" step="0.01">
+</div>
+
+<div>
+<label>MDR 2–6 parcelas (%)</label>
+<input id="mdr26" type="number" step="0.01">
+</div>
+
+<div>
+<label>MDR 7–12 parcelas (%)</label>
+<input id="mdr712" type="number" step="0.01">
+</div>
+
+<div>
+<label>Taxa antecipação (% ao mês)</label>
+<input id="taxaAntecipacao" type="number" step="0.01">
+</div>
+
+</div>
+
+<div class="actions">
+<button class="btn-pdf" onclick="exportarPDF()">Exportar PDF</button>
+</div>
+
+<div class="resultado" id="resultado" style="display:none">
+
+<h3>Resultado</h3>
+
+<p><b>Taxa de MDR:</b> <span id="taxaMDR"></span>%</p>
+<p><b>MDR cobrado:</b> R$ <span id="mdr"></span></p>
+
+<p><b>Valor Líquido:</b> R$ <span id="liquido"></span></p>
+
+<p><b>Taxa de antecipação ao mês:</b> <span id="taxaAnt"></span>%</p>
+
+<p><b>Total Antecipação:</b> R$ <span id="antecipacao"></span></p>
+
+<p><b>Percentual Total da Operação:</b> <span id="percentualTotal"></span>%</p>
+
+<p><b>Valor Final Recebido:</b> <b>R$ <span id="final"></span></b></p>
+
+<table id="tabelaParcelas">
+<thead>
+<tr>
+<th>Parcela</th>
+<th>Data Pagamento</th>
+<th>Dias</th>
+<th>Valor Parcela</th>
+<th>Custo Antecipação</th>
+<th>Valor Líquido</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+</div>
+
+</div>
+
+<script>
+
+let dadosSimulacao={}
+
+function moeda(v){
+return v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
+}
+
+function parseMoeda(valor){
+valor=valor.replace(/\./g,'').replace(',','.')
+return parseFloat(valor)
+}
+
+function formatarMoedaInput(el){
+
+let v=el.value.replace(/\D/g,'')
+
+v=(v/100).toFixed(2)
+
+v=v.replace('.',',')
+
+v=v.replace(/\B(?=(\d{3})+(?!\d))/g,'.')
+
+el.value=v
+
+}
+
+function calcularDataPagamento(parcela){
+
+let hoje=new Date()
+
+let dias=31*parcela
+
+hoje.setDate(hoje.getDate()+dias)
+
+return hoje.toLocaleDateString('pt-BR')
+
+}
+
+function limpar(){
+document.getElementById("resultado").style.display="none"
+document.querySelector("#tabelaParcelas tbody").innerHTML=""
+}
+
+function calcular(){
+
+let valorVenda=parseMoeda(document.getElementById("valorVenda").value||"0")
+
+let parcelas=parseInt(document.getElementById("parcelas").value)
+
+let mdrVista=parseFloat(document.getElementById("mdrVista").value)
+
+let mdr26=parseFloat(document.getElementById("mdr26").value)
+
+let mdr712=parseFloat(document.getElementById("mdr712").value)
+
+let taxa=parseFloat(document.getElementById("taxaAntecipacao").value)/100
+
+if(!valorVenda || !parcelas || isNaN(taxa)){
+limpar()
+return
+}
+
+let mdr
+
+if(parcelas==1) mdr=mdrVista
+else if(parcelas<=6) mdr=mdr26
+else mdr=mdr712
+
+if(isNaN(mdr)){
+limpar()
+return
+}
+
+let valorMDR=valorVenda*(mdr/100)
+
+let liquido=valorVenda-valorMDR
+
+let valorParcela=liquido/parcelas
+
+let tabela=""
+
+let totalAntecipacao=0
+let totalLiquido=0
+
+for(let i=1;i<=parcelas;i++){
+
+let meses=i
+
+let custo=valorParcela*(taxa*meses)
+
+let valorLiquido=valorParcela-custo
+
+totalAntecipacao+=custo
+totalLiquido+=valorLiquido
+
+let dataPagamento=calcularDataPagamento(i)
+
+tabela+=`
+<tr>
+<td>${i}</td>
+<td>${dataPagamento}</td>
+<td>${i*31}</td>
+<td>${moeda(valorParcela)}</td>
+<td>${moeda(custo)}</td>
+<td>${moeda(valorLiquido)}</td>
+</tr>
+`
+
+}
+
+let percentualTotal=((valorMDR+totalAntecipacao)/valorVenda)*100
+
+document.querySelector("#tabelaParcelas tbody").innerHTML=tabela
+
+document.getElementById("taxaMDR").innerText=mdr.toFixed(2)
+document.getElementById("taxaAnt").innerText=(taxa*100).toFixed(2)
+
+document.getElementById("mdr").innerText=moeda(valorMDR)
+document.getElementById("liquido").innerText=moeda(liquido)
+document.getElementById("antecipacao").innerText=moeda(totalAntecipacao)
+document.getElementById("percentualTotal").innerText=percentualTotal.toFixed(2)
+document.getElementById("final").innerText=moeda(totalLiquido)
+
+document.getElementById("resultado").style.display="block"
+
+dadosSimulacao={
+valorVenda,
+parcelas,
+mdr,
+valorMDR,
+liquido,
+taxa,
+totalAntecipacao,
+totalLiquido,
+percentualTotal
+}
+
+}
+
+function exportarPDF(){
+
+if(!dadosSimulacao.valorVenda) return
+
+const {jsPDF}=window.jspdf
+
+let doc=new jsPDF()
+
+let y=20
+
+doc.setFontSize(16)
+doc.text("Simulação de Antecipação de Recebíveis",105,y,{align:"center"})
+
+y+=15
+
+doc.setFontSize(11)
+
+doc.text(`Valor da venda: R$ ${moeda(dadosSimulacao.valorVenda)}`,20,y); y+=7
+doc.text(`Parcelas: ${dadosSimulacao.parcelas}`,20,y); y+=7
+doc.text(`Taxa MDR: ${dadosSimulacao.mdr}%`,20,y); y+=7
+doc.text(`Valor MDR: R$ ${moeda(dadosSimulacao.valorMDR)}`,20,y); y+=7
+doc.text(`Valor líquido: R$ ${moeda(dadosSimulacao.liquido)}`,20,y); y+=7
+doc.text(`Taxa antecipação: ${(dadosSimulacao.taxa*100).toFixed(2)}%`,20,y); y+=7
+doc.text(`Total antecipação: R$ ${moeda(dadosSimulacao.totalAntecipacao)}`,20,y); y+=7
+doc.text(`Percentual total operação: ${dadosSimulacao.percentualTotal.toFixed(2)}%`,20,y); y+=7
+
+doc.setFontSize(12)
+doc.text(`Valor final recebido: R$ ${moeda(dadosSimulacao.totalLiquido)}`,20,y)
+
+y+=15
+
+doc.setFontSize(12)
+doc.text("Detalhamento das Parcelas",20,y)
+
+y+=8
+
+doc.setFontSize(10)
+
+let colunas=[20,40,70,95,130,165]
+
+doc.text("Parc",colunas[0],y)
+doc.text("Data Pgto",colunas[1],y)
+doc.text("Dias",colunas[2],y)
+doc.text("Valor Parcela",colunas[3],y)
+doc.text("Custo Antecip.",colunas[4],y)
+doc.text("Valor Líquido",colunas[5],y)
+
+y+=4
+doc.line(20,y,190,y)
+
+y+=6
+
+let linhas=document.querySelectorAll("#tabelaParcelas tbody tr")
+
+linhas.forEach(linha=>{
+
+let col=linha.querySelectorAll("td")
+
+doc.text(col[0].innerText,colunas[0],y)
+doc.text(col[1].innerText,colunas[1],y)
+doc.text(col[2].innerText,colunas[2],y)
+doc.text(col[3].innerText,colunas[3],y,{align:"right"})
+doc.text(col[4].innerText,colunas[4],y,{align:"right"})
+doc.text(col[5].innerText,colunas[5],y,{align:"right"})
+
+y+=6
+
+if(y>280){
+doc.addPage()
+y=20
+}
+
+})
+
+doc.save("simulacao-antecipacao.pdf")
+
+}
+
+document.querySelectorAll("input,select").forEach(el=>{
+el.addEventListener("input",calcular)
+el.addEventListener("change",calcular)
+})
+
+document.getElementById("valorVenda").addEventListener("input",function(){
+formatarMoedaInput(this)
+})
+
+</script>
+
+</body>
+</html>
